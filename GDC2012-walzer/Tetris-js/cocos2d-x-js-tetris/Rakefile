@@ -1,0 +1,396 @@
+TEMPLATE_DIR = '/Developer/Platforms/iPhoneOS.platform/Developer/Library/Xcode/Project Templates/Application/ShinyCocos Application'
+APP_NAME     = "TestCocos2dX"
+PROJECT      = "TestCocos2dX.xcodeproj"
+TARGET       = APP_NAME
+SDK_VERS     = "5.0"
+SDK_DEVICE   = "iphoneos#{SDK_VERS}"
+SDK_SIMUL    = "iphonesimulator#{SDK_VERS}"
+XCODEBUILD   = "/usr/bin/xcodebuild"
+CLOSURE_COMP = "#{ENV['HOME']}/Applications/compiler-latest/compiler.jar"
+JS_DIR       = "JS"
+
+require 'date'
+
+class String
+  def uncapitalize
+    self[0, 1].downcase + self[1..-1]
+  end
+
+  def capitalize
+    self[0, 1].upcase + self[1..-1]
+  end
+end
+
+class BindingClass
+  attr_accessor :name, :js_methods, :real_parent
+
+  def self.declaration_header(fname, file)
+    file.puts <<-EOS
+//
+//  #{fname}
+//  cocos2d-x
+//
+//  Created By XXX on #{Date.today.strftime("%m/%d/%Y")}
+//  Copyright (c) 2011 XXX. All rights reserved.
+//
+
+#ifndef #{APP_NAME}_#{fname.gsub(".", "_")}
+#define #{APP_NAME}_#{fname.gsub(".", "_")}
+
+#include "cocos2d.h"
+#include "ScriptingCore.h"
+
+    EOS
+  end
+
+  def self.declaration_footer(fname, file)
+    file.puts <<-EOS
+#endif
+
+    EOS
+  end
+
+  def self.implementation_header(fname, file)
+    file.puts <<-EOS
+//
+//  #{fname}
+//  cocos2d-x
+//
+//  Created By XXX on #{Date.today.strftime("%m/%d/%Y")}
+//  Copyright (c) 2011 XXX. All rights reserved.
+//
+
+#include <JavaScriptCore/JavaScriptCore.h>
+#include "#{File.basename(fname, '.cpp') + '.h'}"
+
+using namespace cocos2d;
+
+
+    EOS
+  end
+  
+  def self.implementation_footer(fname, file)
+    file.puts ""
+  end
+
+  def initialize
+    @name = "INVALID"
+    @js_methods = []
+  end
+
+  def dump_declaration(file)
+    file.puts <<-EOS
+class S_#{@name} : public cocos2d::#{@name}
+{
+public:
+
+\tS_#{@name}() : #{@name}() {};
+
+\tSCRIPTABLE_BOILERPLATE
+\tSCRIPTABLE_BOILERPLATE_CCNODE
+    EOS
+
+    @js_methods.each do |m|
+      next if m[:name] == :constructor
+      file.puts <<-EOS
+\tJS_STATIC_FUNC_DEF(js#{m[:name].capitalize});
+      EOS
+    end
+
+    file.puts <<-EOS
+};
+    EOS
+
+    file.puts ""
+  end
+
+  def dump_implementation(file)
+    file.puts <<-EOS
+#pragma mark - #{@name}
+
+JSClassRef js_S_#{@name}_class;
+
+SCRIPTABLE_BOILERPLATE_IMP(S_#{@name})
+SCRIPTABLE_BOILERPLATE_IMP_CCNODE(S_#{@name}, #{@name})
+
+JSStaticFunction* S_#{@name}::jsStaticFunctions()
+{
+    EOS
+
+    unless @js_methods.empty?
+      file.puts <<-EOS
+\tstatic JSStaticFunction funcs[] = {
+      EOS
+
+      @js_methods.each do |m|
+        next if m[:name] == :constructor
+        file.puts <<-EOS
+\t\t{"#{m[:name]}", S_#{@name}::js#{m[:name].capitalize}, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete},
+       EOS
+      end
+
+      file.puts <<-EOS
+\t\t{0, 0, 0}
+\t};
+\treturn funcs;
+}
+
+      EOS
+    else
+      file.puts <<-EOS
+\treturn NULL;
+}
+
+      EOS
+    end
+
+    file.puts <<-EOS
+bool S_#{@name}::initWithContext(JSContextRef ctx, JSObjectRef obj, size_t argumentCount, const JSValueRef arguments[])
+{
+\tbool result = true;
+\t// IMPLEMENT THE CONSTRUCTOR HERE AND INITIALIZE THE CCNODE SUBCLASS
+\t// basically do something like this:
+\tif (!#{@name}::init()) {
+\t\tresult = false;
+\t}
+\tif (result) {
+\t\tsetUserData(obj);
+\t}
+\treturn result;
+}
+
+    EOS
+
+    @js_methods.each do |m|
+      next if m[:name] == :constructor
+      file.puts <<-EOS
+JS_STATIC_FUNC_IMP(S_#{@name}, js#{m[:name].capitalize})
+{
+\tif (argumentCount == #{m[:arguments].size}) {
+\t\t#{@name}* self = (#{@name} *)JSObjectGetPrivate(thisObject);
+\t}
+\treturn JSValueMakeUndefined(ctx);
+}
+
+      EOS
+
+      file.puts ""
+    end
+  end
+end
+
+def xcodebuild_str(config = "Debug", sdk = SDK_SIMUL)
+  "#{XCODEBUILD} -project '#{PROJECT}' -target '#{TARGET}' -sdk #{sdk} -configuration #{config}" 
+end
+
+def clean_xcode_output(cmd)
+  f = IO.popen(cmd)
+  while line = f.gets
+    line = line.strip
+    if md = line.match(/^CompileC ([^ ]+\.o) "?(.+\.m)"?/)
+      fname = File.basename(md[2])
+      puts "[GCC] Compiling #{fname}"
+    elsif md = line.match(/^Ld ([^ ]+)/)
+      fname = File.basename(md[1])
+      puts "[LD] Linking #{fname}"
+    elsif md = line.match(/^CpResource ([^ ]+) ([^ ]+)/)
+      fname1 = File.basename(md[1])
+      fname2 = File.basename(md[2])
+      puts "[CP] #{fname1} to #{fname2}"
+    # else
+    #   puts "[DEBUG] #{line}"
+    end
+  end
+end
+
+desc "builds the debug version of the app (for simulator)"
+task :build_debug do
+  sh "touch #{APP_NAME}/#{JS_DIR}"
+  puts "[ZBUILD] Debug build started - #{Time.now}"
+  clean_xcode_output "#{xcodebuild_str('Debug', SDK_SIMUL)} build"
+  puts "[ZBUILD] Debug build ended - #{Time.now}"
+end
+
+desc "build application, then install and run on simulator (ctrl-c to end session)"
+task :debug => [:build_debug] do
+  require 'tempfile'
+
+  dst_dir = "#{ENV['HOME']}/Library/Application Support/iPhone Simulator/#{SDK_VERS}/Applications/#{APP_NAME}"
+  tf = Tempfile.new("zdebug.log")
+
+  # step 1: launch iphonesim with redirected stderr
+  p1 = fork do
+    exec "'#{ENV['PWD']}/ios-sim' launch 'build/Debug-iphonesimulator/#{APP_NAME}.app' --sdk #{SDK_VERS} --stderr '#{tf.path}' --stdout '#{tf.path}'"
+  end
+  
+  # step 2: launch a tail process on redirected stderr
+  p2 = fork do
+    # tail
+    exec "tail -f '#{tf.path}'"
+  end
+  
+  # step 3: activate iPhone Simulator
+  sh "osascript -e 'tell application \"iPhone Simulator\"' -e 'activate' -e 'end tell'"
+  
+  # trap SIGINT
+  Signal.trap("SIGINT") {
+    # kill all on ctrl-c
+    sh "killall 'iPhone Simulator'"
+    Process.kill("QUIT", p1)
+  }
+  
+  # clean the house
+  Process.wait(p1)
+  Process.kill("QUIT",p2)
+  Process.wait(p2)
+end
+
+namespace "bindings" do
+  desc "test task to see if we can automate the bindings creation (at least part of it)"
+  task "generate_c2dx_bindings" do
+    # array of classes
+    klasses = []
+    state = :invalid
+    substate = :invalid
+    current_class = nil
+
+    outfile_header_name = "S_" + File.basename(ENV['header'])
+    outfile_implementation_name = "S_" + File.basename(ENV['header'], '.h') + ".cpp"
+
+    outfile_header = File.open(outfile_header_name, "w+")
+    outfile_implementation = File.open(outfile_implementation_name, "w+")
+
+    BindingClass.declaration_header(outfile_header_name, outfile_header)
+    BindingClass.implementation_header(outfile_implementation_name, outfile_implementation)
+
+    File.foreach(ENV['header']) do |line|
+      if state == :invalid && md = line.match(/^class\s+CC_DLL\s+(\w+)(\s+:\s+public\s+(\w+))?/)
+        # puts "class: #{md[1]} - parent: #{md[2]}"
+        current_class = BindingClass.new
+        current_class.name = md[1]
+        current_class.real_parent = md[3]
+        state = :in_class
+      elsif state == :in_class
+        if line.match(/\s*public\:/)
+          substate = :public
+          next
+        elsif line.match(/\s*(private|protected)\:/)
+          substate = :private
+          next
+        elsif line.match(/^\};/)
+          state = :invalid
+          substate = :invalid
+          current_class.dump_declaration(outfile_header)
+          current_class.dump_implementation(outfile_implementation)
+          klasses << current_class
+          next
+        end
+
+        if substate == :public
+          if md = line.match(/^\s+(virtual\s+)?(\w+)\s+(\w+)\(([^)]*)\);/)
+            # puts "  #{md[3]} - returns #{md[2]}. Arg list: #{md[4]}"
+            method = {
+              :name => md[3],
+              :return => md[2],
+              :arguments => md[4].split(",").map {|arg| arg.strip}
+            }
+            method[:name] = :constructor if method[:name].match(/^init/)
+            current_class.js_methods << method
+          end
+        end
+      end # in_class
+    end # each line
+
+    BindingClass.declaration_footer(outfile_header_name, outfile_header)
+    BindingClass.implementation_footer(outfile_implementation_name, outfile_implementation)
+
+    # now dump to stdout the externs for each class and the register lines
+    klasses.each do |k|
+      puts "extern JSClassRef js_S_#{k.name}_class;"
+    end
+
+    puts "\n\n***\n\n"
+
+    klasses.each do |k|
+      parent = k.real_parent ? "js_S_#{k.real_parent}_class" : "NULL"
+      puts "\tjs_S_#{k.name}_class = registerClass<S_#{k.name}>(\"#{k.name}\", #{parent} /* PLEASE CHECK PARENT RELATION */);"
+    end
+  end
+
+  desc "will output the jsStaticFunctions function for the implementation of a class"
+  task "genenerate_static_funcs" do
+    klass_name = ""
+    static_funcs = []
+    File.foreach(ENV['header']) do |line|
+      if md = line.match(/^class ([\w_]+)/)
+        klass_name = md[1]
+      elsif md = line.match(/JS_STATIC_FUNC_DEF\((\w+)\)/)
+        static_funcs << md[1]
+      end
+    end
+    puts <<-EOS
+JSStaticFunction *#{klass_name}::jsStaticFunctions()
+{
+\tstatic JSStaticFunction funcs[] = {
+    EOS
+
+    static_funcs.each do |func|
+      js_name = func.match(/js(\w+)/)[1].uncapitalize
+      puts <<-EOS
+\t\t{"#{js_name}", #{klass_name}::#{func}, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete},
+      EOS
+    end
+    puts <<-EOS
+\t\t{0, 0, 0}
+    EOS
+
+    puts <<-EOS
+\t};
+\treturn funcs;
+}
+
+    EOS
+
+    # now output the implementation stubs
+    static_funcs.each do |func|
+      puts <<-EOS
+JS_STATIC_FUNC_IMP(#{klass_name}, #{func})
+{
+\treturn JSValueMakeUndefined(ctx);
+}
+
+      EOS
+    end
+  end
+end
+
+namespace "js" do
+  desc "compiles javascript files"
+  task "compile" do
+    js_files = Dir["#{APP_NAME}/JS/*.js"].map {|f| "--js #{f}"}.join(' ')
+    exec "java -jar #{CLOSURE_COMP} --compilation_level SIMPLE_OPTIMIZATIONS --js_output_file /dev/null --warning_level VERBOSE #{js_files}"
+  end
+end
+
+=begin
+TODO
+
+* install on device (through iTunes)
+* build for AppStore
+
+NOTE
+to sign the binary without xcode (thanks to mobileorchard)
+
+export CODESIGN_ALLOCATE=/Developer/Platforms/iPhoneOS.platform/Developer/usr/bin/codesign_allocate
+codesign -f -s "iPhone Developer" _APP_NAME_.app
+
+NOTE
+install on device is something like this:
+
+* open bundle with iTunes:
+  open -b com.apple.itunes 'app_bundle'
+* sync itunes:
+  osascript -e 'tell application "iTunes" to update'
+
+we should make sure that the device build has the proper Entitlements and can be signed properly
+=end

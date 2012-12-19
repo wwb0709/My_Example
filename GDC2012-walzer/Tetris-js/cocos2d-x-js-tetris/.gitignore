@@ -1,0 +1,8 @@
+*.xcuserdata/
+xcuserdata/
+.DS_Store
+build/
+DerivedData/
+TestCocos2dX/libs/JavaScriptCore/debugger/
+TestCocos2dX/libs/JavaScriptCore/wtf/
+TestCocos2dX/libs/JavaScriptCore/runtime/
