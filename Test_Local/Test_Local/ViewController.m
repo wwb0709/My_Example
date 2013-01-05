@@ -22,6 +22,8 @@
     _Name.text = NSLocalizedString(@"Name", @"name-");
     NSLog(@"Name:");
     NSLog(NSLocalizedString(@"Name", @"name-"));
+    NSLog(NSLocalizedString(@"hello", @"helloworld-"));
+    NSLog(NSLocalizedString(@"helloworld", @"helloworld-"));
     
     UILabel*label = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 320, 44)];
     
